@@ -6,6 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
+from aiogram.methods import SendPhoto
+
 import main
 
 
@@ -77,3 +80,44 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         await main.send_to_telegram([ad("old"), ad("new"), ad("new")], "minsk")
         self.assertEqual(self.bot.send_message.await_count, 1)
         self.assertEqual(self.saved(), ["old", "new"])
+
+    async def test_successful_photo_is_confirmed_without_text_fallback(self):
+        await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
+        self.bot.send_photo.assert_awaited_once()
+        self.bot.send_message.assert_not_awaited()
+        self.assertEqual(self.saved(), ["old", "new"])
+
+    def photo_error(self, error_type):
+        return error_type(
+            method=SendPhoto(chat_id=-1000, photo="https://example.invalid/image.jpg"),
+            message="failed to get HTTP URL content",
+        )
+
+    async def test_rejected_photo_falls_back_to_text_before_confirmation(self):
+        self.bot.send_photo.side_effect = self.photo_error(TelegramBadRequest)
+
+        async def deliver(**kwargs):
+            self.assertEqual(self.saved(), ["old"])
+            self.assertIn("https://example.invalid/new", kwargs["text"])
+            self.assertEqual(kwargs["text"], self.bot.send_photo.call_args.kwargs["caption"])
+
+        self.bot.send_message.side_effect = deliver
+        with self.assertLogs(main.logger, level="WARNING"):
+            await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
+        self.bot.send_message.assert_awaited_once()
+        self.assertEqual(self.saved(), ["old", "new"])
+
+    async def test_failed_text_fallback_does_not_confirm_id(self):
+        self.bot.send_photo.side_effect = self.photo_error(TelegramBadRequest)
+        self.bot.send_message.side_effect = RuntimeError("temporary failure")
+        with self.assertLogs(main.logger, level="WARNING"):
+            await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
+        self.bot.send_message.assert_awaited_once()
+        self.assertEqual(self.saved(), ["old"])
+
+    async def test_ambiguous_network_failure_does_not_send_duplicate_text(self):
+        self.bot.send_photo.side_effect = self.photo_error(TelegramNetworkError)
+        with self.assertLogs(main.logger, level="ERROR"):
+            await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
+        self.bot.send_message.assert_not_awaited()
+        self.assertEqual(self.saved(), ["old"])

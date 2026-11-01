@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlsplit
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from dotenv import load_dotenv
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
@@ -222,7 +223,16 @@ async def send_to_telegram(ads, city):
                 token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
             ) as bot:
                 if ad["img"]:
-                    await bot.send_photo(chat_id=channel_id, photo=ad["img"], caption=text)
+                    try:
+                        await bot.send_photo(chat_id=channel_id, photo=ad["img"], caption=text)
+                    except TelegramBadRequest as error:
+                        # Telegram однозначно отклонил фото — публикуем само объявление.
+                        logger.warning(
+                            "Фото %s отклонено Telegram, отправляем текст: %s", city, error
+                        )
+                        await bot.send_message(
+                            chat_id=channel_id, text=text, disable_web_page_preview=True
+                        )
                 else:
                     await bot.send_message(
                         chat_id=channel_id, text=text, disable_web_page_preview=True
