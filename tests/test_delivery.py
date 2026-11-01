@@ -104,8 +104,8 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         text = self.bot.send_message.call_args.kwargs["text"]
         self.assertLessEqual(telegram_length(caption), config.TELEGRAM_CAPTION_LIMIT)
         self.assertLessEqual(telegram_length(text), config.TELEGRAM_TEXT_LIMIT)
-        self.assertIn("Животные: нельзя", caption)
-        self.assertIn("Животные: нельзя", text)
+        self.assertIn("Животные: <b>нельзя</b>", caption)
+        self.assertIn("Животные: <b>нельзя</b>", text)
         self.assertEqual(text, render_post(item, "minsk"))
         self.assertEqual(self.saved(), ["old", "new"])
 

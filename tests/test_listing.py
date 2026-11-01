@@ -82,7 +82,7 @@ class ListingTests(unittest.TestCase):
         for name in (*config.POST_CONDITION_NAMES, "metro"):
             self.assertIsNone(data[name])
         text = render_post(example(description=[]), "minsk")
-        self.assertEqual(text.count("не указано"), 5)
+        self.assertEqual(text.count("не указано"), 1)
 
     def test_explicit_phrases_and_conflicts(self):
         data = parameters(
@@ -123,13 +123,13 @@ class ListingTests(unittest.TestCase):
     def test_safe_html_and_complete_post(self):
         text = render_post(
             example(
-                address=['<script> & "улица"'], description=["Залог: <b>500</b>; Животные: нельзя"]
+                address=['<script> & "улица"'], description=["<b>Описание</b>; Животные: нельзя"]
             ),
             "minsk",
         )
-        self.assertTrue(text.startswith("<b>2-комн. · 50.5 м² · 1200 BYN/мес.</b>"))
+        self.assertTrue(text.startswith("✅ <b>2-комн. · 50.5 м² · 💰 1200 BYN/мес.</b>\n\n"))
         self.assertIn("&lt;script&gt; &amp;", text)
-        self.assertIn("&lt;b&gt;500&lt;/b&gt;", text)
+        self.assertIn("📌 <i>&lt;b&gt;Описание&lt;/b&gt;</i>", text)
         self.assertIn("&amp;b=&quot;test&quot;", text)
         self.assertNotIn("<script>", text)
         self.assertIn("14:30", text)
@@ -140,8 +140,8 @@ class ListingTests(unittest.TestCase):
         for limit in (config.TELEGRAM_CAPTION_LIMIT, config.TELEGRAM_TEXT_LIMIT):
             text = render_post(ad, "minsk", limit)
             self.assertLessEqual(telegram_length(text), limit)
-            self.assertIn("Залог: 500 BYN", text)
-            self.assertIn("Животные: нельзя", text)
+            self.assertNotIn("Залог:", text)
+            self.assertIn("🐾 Животные: <b>нельзя</b>", text)
             self.assertIn("Объявление на Kufar", text)
             self.assertNotIn("&lt;тек…", text)
 
@@ -150,7 +150,32 @@ class ListingTests(unittest.TestCase):
             example(description=["Свежий ремонт. Свежий ремонт. Залог: 500 BYN"]), "minsk"
         )
         self.assertEqual(text.count("Свежий ремонт."), 1)
-        self.assertEqual(text.count("Залог: 500 BYN"), 1)
+        self.assertNotIn("Залог:", text)
+
+    def test_readable_blocks_and_tags_below_channels(self):
+        text = render_post(example(description=["Свежий ремонт."]), "minsk")
+        self.assertIn("📍 <b>Адрес: Тестовая, 1; Советский район</b>", text)
+        self.assertIn("\n\n📌 <i>Свежий ремонт.</i>\n\n🔥 <b>", text)
+        self.assertIn("\n\n⌛ Размещено: 14:30\n\n" + config.SIGNATURE, text)
+        self.assertTrue(
+            text.endswith(config.SIGNATURE + "\n\n#комнат_2 #1200_1800BYN #район_Советский")
+        )
+        without_tags = render_post(example(title=[], price_byn=[], address=[]), "minsk")
+        self.assertTrue(without_tags.endswith(config.SIGNATURE))
+
+    def test_unwanted_conditions_are_not_printed_even_in_description(self):
+        text = render_post(
+            example(
+                description=[
+                    "Залог: 500 BYN; Комиссия: 50%; Коммунальные: отдельно; "
+                    "Срок аренды: год; Без комиссии. Без залога. Свежий ремонт."
+                ]
+            ),
+            "minsk",
+        )
+        for word in ("залог", "комисси", "коммуналь", "срок аренды"):
+            self.assertNotIn(word, text.casefold())
+        self.assertIn("📌 <i>Свежий ремонт.</i>", text)
 
     def test_insufficient_caption_budget_and_invalid_link(self):
         self.assertIsNone(render_post(example(), "minsk", 30))

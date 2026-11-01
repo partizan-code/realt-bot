@@ -53,10 +53,6 @@ RENT_CONDITION_LABELS = {
     "pets": ("Животные", "С животными"),
 }
 POST_CONDITION_NAMES = {
-    "deposit": "Залог",
-    "commission": "Комиссия",
-    "utilities": "Коммунальные",
-    "rental_term": "Срок аренды",
     "pets": "Животные",
 }
 POST_DESCRIPTION_LIMIT = 500

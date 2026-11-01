@@ -129,30 +129,40 @@ def render_post(ad, city, limit=None):
     if data["area_m2"]:
         heading.append(f"{display(data['area_m2'])} м²")
     heading.append(
-        f"{display(data['price_byn_month'])} BYN/мес."
+        f"💰 {display(data['price_byn_month'])} BYN/мес."
         if data["price_byn_month"]
         else "цена за месяц не указана"
     )
-    lines = ["<b>" + escape(" · ".join(heading)) + "</b>"]
+    lines = ["✅ <b>" + escape(" · ".join(heading)) + "</b>"]
     conditions = []
     for field, label in config.POST_CONDITION_NAMES.items():
         value = data[field] or "не указано"
         if len(value) > config.POST_CONDITION_LIMIT:
             value = "подробности в объявлении"
-        conditions.append(f"{label}: {value}")
+        conditions.append(f"🐾 {label}: <b>{escape(value)}</b>")
     link = ad.get("link", "")
     parsed = urlsplit(link)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError("Недопустимая ссылка объявления")
     footer = (
-        f'<a href="{escape(link, quote=True)}">Объявление на Kufar</a>\n'
-        f"Размещено: {ad['time'].strftime(config.TELEGRAM_TIME_FORMAT)}\n"
-        + hashtags(data)
-        + "\n"
-        + config.SIGNATURE
+        f'🔥 <b><a href="{escape(link, quote=True)}">Объявление на Kufar</a></b>\n\n'
+        f"⌛ Размещено: {ad['time'].strftime(config.TELEGRAM_TIME_FORMAT)}\n\n" + config.SIGNATURE
     )
+    if hashtags(data):
+        footer += "\n\n" + hashtags(data)
+
+    def compose(extras=(), description=""):
+        blocks = [*lines]
+        if extras:
+            blocks.append("\n".join(f"📍 <b>{escape(x)}</b>" for x in extras))
+        blocks.extend(conditions)
+        if description:
+            blocks.append(f"📌 <i>{escape(description)}</i>")
+        blocks.append(footer)
+        return "\n\n".join(blocks)
+
     # Обязательные условия и ссылка не теряются при сокращении описания.
-    base = "\n".join([*lines, *(escape(x) for x in conditions), footer])
+    base = compose()
     if telegram_length(base) > limit:
         return None  # Вызывающий код выберет более вместительное текстовое сообщение.
     optional = []
@@ -173,9 +183,7 @@ def render_post(ad, city, limit=None):
     extras = []
     for value in optional:
         if value and value.casefold() not in {x.casefold() for x in extras}:
-            candidate = "\n".join(
-                [*lines, *(escape(x) for x in [*extras, value, *conditions]), footer]
-            )
+            candidate = compose([*extras, value])
             if telegram_length(candidate) <= limit:
                 extras.append(value)
     sentences = re.split(r"(?<=[.!?])\s+|[\n;]+", raw_text(ad, "description"))
@@ -184,6 +192,14 @@ def render_post(ad, city, limit=None):
         sentence = " ".join(sentence.split())
         label, separator, value = sentence.partition(":")
         if separator:
+            hidden_labels = {
+                alias.casefold()
+                for field, aliases in config.RENT_CONDITION_LABELS.items()
+                if field not in config.POST_CONDITION_NAMES
+                for alias in aliases
+            }
+            if label.strip().casefold() in hidden_labels:
+                continue
             known = {
                 alias.casefold(): data[field]
                 for field, aliases in config.RENT_CONDITION_LABELS.items()
@@ -193,24 +209,22 @@ def render_post(ad, city, limit=None):
             fact = known.get(label.strip().casefold())
             if fact and value.strip().rstrip(".!?").casefold() == fact.rstrip(".!?").casefold():
                 continue
+        if re.fullmatch(r"без (?:залога|комиссии)[.!?]?", sentence, re.I):
+            continue
         if not sentence or sentence.casefold().rstrip(".!?") in {
-            x.casefold().rstrip(".!?") for x in [*extras, *conditions, *description]
+            x.casefold().rstrip(".!?")
+            for x in [
+                *extras,
+                *description,
+                *(data[field] or "" for field in config.POST_CONDITION_NAMES),
+            ]
         }:
             continue
         candidate_description = " ".join([*description, sentence])
-        candidate = "\n".join(
-            [*lines, *(escape(x) for x in [*extras, *conditions, candidate_description]), footer]
-        )
+        candidate = compose(extras, candidate_description)
         if (
             len(candidate_description) <= config.POST_DESCRIPTION_LIMIT
             and telegram_length(candidate) <= limit
         ):
             description.append(sentence)
-    return "\n".join(
-        [
-            *lines,
-            *(escape(x) for x in [*extras, *conditions]),
-            *([escape(" ".join(description))] if description else []),
-            footer,
-        ]
-    )
+    return compose(extras, " ".join(description))
