@@ -144,7 +144,7 @@ def render_post(ad, city, limit=None):
         value = data[field] or "не указано"
         if len(value) > config.POST_CONDITION_LIMIT:
             value = "подробности в объявлении"
-        conditions.append(f"🐾 {label}: <b>{escape(value)}</b>")
+        conditions.append(f"🐶 {label}: <b>{escape(value)}</b>")
     link = ad.get("link", "")
     parsed = urlsplit(link)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
@@ -159,7 +159,11 @@ def render_post(ad, city, limit=None):
     def compose(extras=(), description=""):
         blocks = [*lines]
         if extras:
-            blocks.append("\n".join(f"📍 <b>{escape(x)}</b>" for x in extras))
+            location_lines = []
+            for value in extras:
+                prefix = "" if value.startswith(("Адрес:", "Этаж:")) else "📍 "
+                location_lines.append(f"{prefix}<b>{escape(value)}</b>")
+            blocks.append("\n".join(location_lines))
         blocks.extend(conditions)
         if description:
             blocks.append(f"📌 <i>{escape(description)}</i>")

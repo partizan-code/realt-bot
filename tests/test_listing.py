@@ -141,7 +141,7 @@ class ListingTests(unittest.TestCase):
             text = render_post(ad, "minsk", limit)
             self.assertLessEqual(telegram_length(text), limit)
             self.assertNotIn("Залог:", text)
-            self.assertIn("🐾 Животные: <b>нельзя</b>", text)
+            self.assertIn("🐶 Животные: <b>нельзя</b>", text)
             self.assertIn("Объявление на Kufar", text)
             self.assertNotIn("&lt;тек…", text)
 
@@ -154,7 +154,8 @@ class ListingTests(unittest.TestCase):
 
     def test_readable_blocks_and_tags_below_channels(self):
         text = render_post(example(description=["Свежий ремонт."]), "minsk")
-        self.assertIn("📍 <b>Адрес: Тестовая, 1; Советский район</b>", text)
+        self.assertIn("\n\n<b>Адрес: Тестовая, 1; Советский район</b>\n", text)
+        self.assertIn("\n<b>Этаж: 3/9</b>\n\n", text)
         self.assertIn("\n\n📌 <i>Свежий ремонт.</i>\n\n🔥 <b>", text)
         self.assertIn("\n\n⌛ Размещено: 14:30\n\n" + config.SIGNATURE, text)
         self.assertTrue(
