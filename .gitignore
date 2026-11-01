@@ -43,9 +43,12 @@ htmlcov/
 logs/
 data/
 tmp/
+img/
 .cache/
 *.sqlite
 *.db
+ads*.json
+*cookies.json
 
 # OS
 .DS_Store

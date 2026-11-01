@@ -9,7 +9,7 @@ echo "--- Pull с GitHub ---"
 git pull origin main
 
 echo "--- Установка зависимостей ---"
-uv sync --no-dev
+uv sync --locked --no-dev
 
 echo "--- Перезапуск сервиса ---"
 # sudo systemctl restart realt-bot
