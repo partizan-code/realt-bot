@@ -98,6 +98,37 @@ class ListingTests(unittest.TestCase):
         )
         self.assertIsNone(data["commission"])
 
+    def test_pets_prohibition_in_rental_sentence(self):
+        ad = example(
+            description=[
+                "Отвечаю только на звонки. Однокомнатная квартира с хорошим расположением, "
+                "вокруг развитая инфраструктура. Сдам одному человеку без детей и животных."
+            ]
+        )
+        self.assertEqual(parameters(ad, "gomel")["pets"], "без детей и животных")
+        self.assertIn("🐶 Животные: <b>без детей и животных</b>", render_post(ad, "gomel"))
+        for description in (
+            "Без детей и животных.",
+            "Сдам без животных.",
+            "Сдам паре без детей и животных.",
+            "СДАМ ОДНОМУ ЧЕЛОВЕКУ БЕЗ ДЕТЕЙ И ЖИВОТНЫХ!",
+        ):
+            with self.subTest(description=description):
+                self.assertIsNotNone(
+                    parameters(example(description=[description]), "gomel")["pets"]
+                )
+
+    def test_uncertain_and_conflicting_pets_conditions_remain_unknown(self):
+        for description in (
+            "Предпочтительно без детей и животных.",
+            "Не обязательно без животных.",
+            "Сдам одному человеку без детей.",
+            "Обсудим возможность проживания без детей и животных.",
+            "Животные: можно; Сдам одному человеку без детей и животных.",
+        ):
+            with self.subTest(description=description):
+                self.assertIsNone(parameters(example(description=[description]), "gomel")["pets"])
+
     def test_district_requires_label_and_city_dictionary(self):
         self.assertIsNone(parameters(example(address=["Советская улица"]), "minsk")["district"])
         self.assertIsNone(parameters(example(), "brest")["district"])

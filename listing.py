@@ -74,10 +74,18 @@ def parameters(ad, city):
     phrases = {
         "commission": r"без комиссии",
         "deposit": r"без залога",
-        "pets": r"(?:с животными (?:нельзя|можно)|без животных)",
+        "pets": (
+            r"(?:с животными (?:нельзя|можно)|"
+            r"без\s+(?:детей\s+и\s+)?животных)"
+        ),
     }
     for field, pattern in phrases.items():
-        found = re.findall(rf"(?:^|[\n;.!?])\s*({pattern})\s*(?=$|[\n;.!?])", description, re.I)
+        prefix = (
+            r"(?:сдам\s+(?:(?:одному человеку|одному|паре|семье)\s+)?)?" if field == "pets" else ""
+        )
+        found = re.findall(
+            rf"(?:^|[\n;.!?])\s*{prefix}({pattern})\s*(?=$|[\n;.!?])", description, re.I
+        )
         if found:
             evidence[field] = unique([*found, *candidates[field]])
     metro = unique(re.findall(r"(?:^|[\n;])\s*Метро\s*:\s*([^\n;.!?]+)", source, re.I))
