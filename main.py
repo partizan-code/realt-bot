@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
+from browser_session import BrowserSession, BrowserUnavailable, raise_for_browser_error
 from logger_config import setup_logger
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,7 @@ async def parse_new_ads(page, city):
             logger.error("Kufar вернул HTTP %s для %s", response.status, city)
             return None
     except Exception as error:
+        raise_for_browser_error(error)
         logger.error("Не загрузилась страница %s: %s", city, error)
         return None
 
@@ -182,6 +184,7 @@ async def parse_new_ads(page, city):
             new_ads.append(ad)
             seen.add(ad["id"])
         except Exception as error:
+            raise_for_browser_error(error)
             stats["invalid"] += 1
             logger.warning("Карточка %s пропущена: %s", city, error)
 
@@ -247,6 +250,36 @@ async def send_to_telegram(ads, city):
         await asyncio.sleep(3)
 
 
+async def process_city(session, city):
+    """При аварии восстановить Chromium и один раз повторить текущий город."""
+    for attempt in range(2):
+        try:
+            if session.broken:
+                await session.restart()
+            session.ensure_alive()
+            new_ads = await parse_new_ads(session.page, city=city)
+            session.ensure_alive()
+        except BrowserUnavailable as error:
+            session.invalidate()
+            logger.warning("Сбой Chromium для %s, попытка %s/2: %s", city, attempt + 1, error)
+            continue
+        except Exception as error:
+            if session.broken:
+                session.invalidate()
+                logger.warning("Не удалось восстановить Chromium для %s: %s", city, error)
+                continue
+            logger.error("Ошибка обработки %s: %s", city, error)
+            return
+        if new_ads is None:
+            logger.info("%s пропущен из-за ошибки загрузки или разметки", city)
+        else:
+            logger.info("Найдено %s новых объявлений %s", len(new_ads), city)
+            # Ошибка доставки или записи истории не должна повторять парсинг как crash.
+            await send_to_telegram(new_ads, city=city)
+        return
+    logger.error("Город %s пропущен после двух неудачных попыток восстановления Chromium", city)
+
+
 async def main():
     configure()
     RESTART_INTERVAL = 60
@@ -256,31 +289,20 @@ async def main():
         context_options["storage_state"] = "re.kufar.by_cookies.json"
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(**context_options)
-        page = await context.new_page()
+        session = BrowserSession(p, context_options)
         try:
             while True:
                 cycle_count += 1
                 if cycle_count > RESTART_INTERVAL:
                     logger.info("Достигнут интервал перезапуска браузера")
-                    await browser.close()
+                    await session.close()
                     await asyncio.sleep(10)
-                    browser = await p.chromium.launch(headless=True)
-                    context = await browser.new_context(**context_options)
-                    page = await context.new_page()
                     cycle_count = 0
-                    logger.info("Браузер перезапущен")
 
                 for city in cities_ch_ids:
                     logger.info(f"Проверяем новые объявления {city}...")
                     try:
-                        new_ads = await parse_new_ads(page, city=city)
-                        if new_ads is not None:  # Проверьте, не вернулся ли None из-за ошибки
-                            logger.info(f"Найдено {len(new_ads)} новых объявлений {city}")
-                            await send_to_telegram(new_ads, city=city)
-                        else:
-                            logger.info(f"{city} пропущен из-за ошибки загрузки страницы")
+                        await process_city(session, city)
                     except Exception as e:  # Поймайте любые другие ошибки, специфичные для города
                         logger.error(f"Произошла ошибка при обработке города {city}: {e}")
                     # Всегда ждем перед следующим городом/итерацией
@@ -291,7 +313,7 @@ async def main():
         ) as e:  # Этот except теперь поймает ошибки, не связанные с обработкой конкретного города
             logger.error(f"Критическая ошибка в основном цикле, завершение программы: {e}")
         finally:
-            await browser.close()
+            await session.close()
 
 
 if __name__ == "__main__":
