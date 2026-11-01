@@ -3,13 +3,13 @@ import json
 import logging
 import os
 from collections import deque
-from datetime import datetime, time
+from datetime import time
 from os import getenv
+from urllib.parse import urljoin, urlsplit
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import FSInputFile
 from dotenv import load_dotenv
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
@@ -73,118 +73,128 @@ async def save_ids(ids, city):
         json.dump(list(ids), f)
 
 
+CARD_SELECTOR = 'a[data-testid^="kufar-realty-card-"]'
+
+
+def field_selector(name):
+    """Искать смысловой суффикс CSS-класса независимо от хеша сборки."""
+    return f'[class$="_{name}"], [class*="_{name} "]'
+
+
+async def extract_ad(card):
+    """Прочитать одну карточку; отсутствие обязательных полей — ошибка разметки."""
+    date_text = await card.locator(field_selector("date")).first.inner_text(timeout=1000)
+    date_ads, separator, time_ads = date_text.strip().partition(",")
+    if not separator:
+        raise ValueError("Не распознана дата объявления")
+    published_time = time.fromisoformat(time_ads.strip())
+    href = await card.get_attribute("href")
+    if not href:
+        raise ValueError("У карточки отсутствует ссылка")
+    ads_link = urljoin("https://re.kufar.by", href).split("?")[0].split("#")[0]
+    id_ads = urlsplit(ads_link).path.rstrip("/").split("/")[-1]
+    if not id_ads.isdigit():
+        raise ValueError("Не распознан ID объявления")
+
+    async def texts(selector):
+        values = await card.locator(selector).first.all_inner_texts()
+        return [value.strip() for value in values if value.strip()]
+
+    title = await texts(field_selector("parameters"))
+    price_byn = await texts('[data-testid="card-price"]')
+    if not title or not price_byn:
+        raise ValueError("Не распознаны параметры или цена объявления")
+    address = await texts('[data-testid="card-adress"]')
+    if not address:
+        address = await texts(field_selector("address"))
+    description = await texts(f"p:is({field_selector('body')})")
+    price_usd = await texts('[class*="_price__usd"]')
+    img_link = None
+    for image in await card.locator("img[src]").all():
+        source = await image.get_attribute("src")
+        if source:
+            source = urljoin("https://re.kufar.by", source)
+            if urlsplit(source).scheme in ("http", "https") and not urlsplit(source).path.endswith(
+                ".svg"
+            ):
+                img_link = source
+                break
+    return {
+        "id": id_ads,
+        "title": title,
+        "price_usd": price_usd,
+        "price_byn": price_byn,
+        "address": address,
+        "description": description,
+        "img": img_link,
+        "link": ads_link,
+        "date": date_ads.strip(),
+        "time": published_time,
+    }
+
+
 async def parse_new_ads(page, city):
     url = f"https://re.kufar.by/l/{city}/snyat/kvartiru?cur=BYN&size=30&sort=lst.d"
-    ads = []
     try:
-        await page.goto(url)
-    except Exception as e:
-        logger.error(f"Не загрузилась страница {e}")
+        response = await page.goto(url, wait_until="domcontentloaded")
+        if response and response.status >= 400:
+            logger.error("Kufar вернул HTTP %s для %s", response.status, city)
+            return None
+    except Exception as error:
+        logger.error("Не загрузилась страница %s: %s", city, error)
         return None
 
-    # Обработка всплывающего окна cookies
     try:
-        await page.locator("button:has-text('Принять')").click(timeout=3000)
+        await page.get_by_role("button", name="Принять", exact=True).click(timeout=3000)
         logger.info("Cookies accepted")
     except PlaywrightTimeoutError:
         logger.info("No cookie popup found")
 
     try:
-        # Сначала проверяем, есть ли вообще section на странице
-        section_count = await page.locator("section").count()
-        logger.info(f"Найдено section элементов: {section_count}")
-
-        if section_count == 0:
-            # Если section нет, ждем появления хотя бы одного
-            logger.info("Ожидаем появления section элементов...")
-            await page.wait_for_selector("section", timeout=10000)
-
-        # Получаем все элементы section
-        ads = await page.locator("section").all()
-        logger.info(f"Получено {len(ads)} элементов section")
-
-    except Exception as e:
-        logger.error(f"Ошибка locator(section) {e}")
-        return None
-
-    if not ads:
-        # Создаем директорию для скриншотов, если её нет
-        screenshots_dir = "img"
-        os.makedirs(screenshots_dir, exist_ok=True)
-
-        # Генерируем уникальное имя файла
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        screenshot_path = os.path.join(screenshots_dir, f"{city}_{timestamp}.png")
-
-        # Делаем скриншот
-        await page.screenshot(path=screenshot_path, full_page=True)
-        logger.info(f"Скриншот сохранен: {screenshot_path}")
-
-        async with Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)) as bot:
-            await bot.send_photo(chat_id=ADMIN_ID, photo=FSInputFile(screenshot_path))
+        await page.locator(CARD_SELECTOR).first.wait_for(timeout=10000)
+        ads = await page.locator(CARD_SELECTOR).all()
+    except PlaywrightTimeoutError:
+        logger.error(
+            "Не найдены карточки Kufar для %s: проверьте разметку или доступ к сайту", city
+        )
         return None
 
     new_ads = []
     existing_ids = await load_existing_ids(city)
-
-    for i in reversed(ads):
+    seen = set(existing_ids)
+    stats = {"dated": 0, "today": 0, "known": 0, "invalid": 0}
+    for card in reversed(ads):
         try:
-            date_time = await i.locator(
-                ".styles-module-scss-module__ykXXHG__date"
-            ).all_inner_texts()
-            if date_time:
-                date_ads = date_time[0].split(",")[0]
-                time_ads = date_time[0].split(",")[1].strip()
-                time_ads = time.fromisoformat(time_ads)
-                if date_ads == "Сегодня":
-                    ads_link = await i.locator("a").first.get_attribute("href")
-                    ads_link = ads_link.split("?")[0]
-                    id_ads = ads_link.split("/")[-1]
-                    if id_ads not in existing_ids:
-                        title = await i.locator(
-                            ".styles-module-scss-module__ykXXHG__parameters"
-                        ).all_inner_texts()
-                        address = await i.locator(
-                            ".styles-module-scss-module__ykXXHG__address"
-                        ).all_inner_texts()
-                        description = await i.locator(
-                            "p.styles-module-scss-module__ykXXHG__body"
-                        ).all_inner_texts()
-                        price_byn = await i.locator(
-                            ".styles-module-scss-module__knBPIa__price__byr"
-                        ).all_inner_texts()
-                        price_usd = await i.locator(".styles_price__usd__HpXMa").all_inner_texts()
+            ad = await extract_ad(card)
+            stats["dated"] += 1
+            if ad["date"] != "Сегодня":
+                continue
+            stats["today"] += 1
+            if ad["id"] in seen:
+                stats["known"] += 1
+                continue
+            new_ads.append(ad)
+            existing_ids.append(ad["id"])
+            seen.add(ad["id"])
+        except Exception as error:
+            stats["invalid"] += 1
+            logger.warning("Карточка %s пропущена: %s", city, error)
 
-                        images = await i.locator("img").all()
-                        img_link = None
-                        if images:
-                            for img in images:
-                                img_link = await img.get_attribute("src")
-                                if img_link[-4:] == ".jpg":
-                                    break
-
-                        new_ads.append(
-                            {
-                                "id": id_ads,
-                                "title": title,
-                                "price_usd": price_usd,
-                                "price_byn": price_byn,
-                                "address": address,
-                                "description": description,
-                                "img": img_link,
-                                "link": ads_link,
-                                "date": date_ads,
-                                "time": time_ads,
-                            }
-                        )
-                        # Добавляем новый ID в историю
-                        existing_ids.append(id_ads)
-        except Exception as e:
-            logger.error(f"Ошибка при парсинге объявления: {e}")
-
+    logger.info(
+        "%s: карточек=%s, распознано=%s, сегодня=%s, известных=%s, ошибок=%s, новых=%s",
+        city,
+        len(ads),
+        stats["dated"],
+        stats["today"],
+        stats["known"],
+        stats["invalid"],
+        len(new_ads),
+    )
+    if not stats["dated"]:
+        logger.error("Ни одна карточка %s не распознана: проверьте селекторы полей", city)
+        return None
     if new_ads:
         await save_ids(existing_ids, city)
-
     return new_ads
 
 
