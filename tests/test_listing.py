@@ -106,7 +106,7 @@ class ListingTests(unittest.TestCase):
             ]
         )
         self.assertEqual(parameters(ad, "gomel")["pets"], "без детей и животных")
-        self.assertIn("🐶 Животные: <b>без детей и животных</b>", render_post(ad, "gomel"))
+        self.assertIn("🐈 Животные: <b>без детей и животных</b>", render_post(ad, "gomel"))
         for description in (
             "Без детей и животных.",
             "Сдам без животных.",
@@ -172,7 +172,7 @@ class ListingTests(unittest.TestCase):
             text = render_post(ad, "minsk", limit)
             self.assertLessEqual(telegram_length(text), limit)
             self.assertNotIn("Залог:", text)
-            self.assertIn("🐶 Животные: <b>нельзя</b>", text)
+            self.assertIn("🐈 Животные: <b>нельзя</b>", text)
             self.assertIn("Объявление на Kufar", text)
             self.assertNotIn("&lt;тек…", text)
 

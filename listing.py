@@ -152,7 +152,7 @@ def render_post(ad, city, limit=None):
         value = data[field] or "не указано"
         if len(value) > config.POST_CONDITION_LIMIT:
             value = "подробности в объявлении"
-        conditions.append(f"🐶 {label}: <b>{escape(value)}</b>")
+        conditions.append(f"🐈 {label}: <b>{escape(value)}</b>")
     link = ad.get("link", "")
     parsed = urlsplit(link)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
