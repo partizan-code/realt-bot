@@ -128,12 +128,17 @@ def render_post(ad, city, limit=None):
         heading.append(f"{data['rooms']}-комн.")
     if data["area_m2"]:
         heading.append(f"{display(data['area_m2'])} м²")
-    heading.append(
-        f"💰 {display(data['price_byn_month'])} BYN/мес."
+    price = (
+        f"{display(data['price_byn_month'])} BYN/мес."
         if data["price_byn_month"]
-        else "цена за месяц не указана"
+        else raw_text(ad, "price_byn").strip() or "цена за месяц не указана"
     )
-    lines = ["✅ <b>" + escape(" · ".join(heading)) + "</b>"]
+    lines = [
+        "✅ <b>"
+        + escape(" · ".join(heading) or "Квартира")
+        + "</b>\n"
+        + f"💰 <b>{escape(price)}</b>"
+    ]
     conditions = []
     for field, label in config.POST_CONDITION_NAMES.items():
         value = data[field] or "не указано"
@@ -178,8 +183,6 @@ def render_post(ad, city, limit=None):
     # Неизвестные структурированные поля не уничтожают исходные параметры и цену.
     if any(data[key] is None for key in ("rooms", "area_m2", "floor")):
         optional.append(raw_text(ad, "title"))
-    if data["price_byn_month"] is None and raw_text(ad, "price_byn"):
-        optional.append("Цена в источнике: " + raw_text(ad, "price_byn"))
     extras = []
     for value in optional:
         if value and value.casefold() not in {x.casefold() for x in extras}:

@@ -127,7 +127,7 @@ class ListingTests(unittest.TestCase):
             ),
             "minsk",
         )
-        self.assertTrue(text.startswith("✅ <b>2-комн. · 50.5 м² · 💰 1200 BYN/мес.</b>\n\n"))
+        self.assertTrue(text.startswith("✅ <b>2-комн. · 50.5 м²</b>\n💰 <b>1200 BYN/мес.</b>\n\n"))
         self.assertIn("&lt;script&gt; &amp;", text)
         self.assertIn("📌 <i>&lt;b&gt;Описание&lt;/b&gt;</i>", text)
         self.assertIn("&amp;b=&quot;test&quot;", text)
