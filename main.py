@@ -100,7 +100,12 @@ async def extract_ad(card):
         values = await card.locator(selector).first.all_inner_texts()
         return [value.strip() for value in values if value.strip()]
 
-    title = await texts(field_selector("parameters"))
+    # На сайте параметры разделены пустыми span с CSS-маркерами, а не пробелами.
+    title_text = await card.locator(field_selector("parameters")).first.evaluate(
+        "node => Array.from(node.childNodes, part => part.textContent.trim()).filter(Boolean).join(' ')",
+        timeout=1000,
+    )
+    title = [" ".join(title_text.split())] if title_text.strip() else []
     price_byn = await texts('[data-testid="card-price"]')
     if not title or not price_byn:
         raise ValueError("Не распознаны параметры или цена объявления")

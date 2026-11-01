@@ -51,6 +51,16 @@ class ParsingTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(ad["link"], "https://re.kufar.by/vi/minsk/snyat/kvartiru/1001")
                 self.assertEqual(ad["img"], "https://example.invalid/photo.jpg?size=large")
 
+    async def test_parameters_have_spaces_between_visual_separators(self):
+        await self.page.set_content(
+            card(
+                title='1-комн.<span class="hash_bullet"></span>40 м²'
+                '<span class="hash_bullet"></span>8/9 эт.'
+            )
+        )
+        ad = await main.extract_ad(self.page.locator(main.CARD_SELECTOR))
+        self.assertEqual(ad["title"], ["1-комн. 40 м² 8/9 эт."])
+
     async def test_missing_required_field_is_not_a_valid_ad(self):
         await self.page.set_content(card(price=""))
         with self.assertRaisesRegex(ValueError, "параметры или цена"):
