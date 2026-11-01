@@ -1,0 +1,17 @@
+[Unit]
+Description=realt-bot
+After=network.target
+
+[Service]
+Type=simple
+User=korobey
+Group=korobey
+WorkingDirectory=/home/korobey/bots/realt-bot
+ExecStart=/home/korobey/.local/bin/uv run python main.py
+Restart=always
+RestartSec=5
+Environment="PYTHONUNBUFFERED=1"
+SyslogIdentifier=realt-bot
+
+[Install]
+WantedBy=multi-user.target
