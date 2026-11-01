@@ -118,6 +118,26 @@ class ListingTests(unittest.TestCase):
                     parameters(example(description=[description]), "gomel")["pets"]
                 )
 
+    def test_pets_prohibition_after_children_separated_by_comma(self):
+        ad = example(
+            description=[
+                "На длительный срок. Без детей, без животных. Гражданам РБ. "
+                "Прописан один человек. Агентствам не беспокоить"
+            ]
+        )
+        self.assertEqual(parameters(ad, "minsk")["pets"], "без животных")
+        self.assertIn("🐈 Животные: <b>без животных</b>", render_post(ad, "minsk"))
+        for description in (
+            "Без детей,без животных.",
+            "БЕЗ ДЕТЕЙ , БЕЗ ЖИВОТНЫХ!",
+            "Сдам паре без детей, без животных.",
+        ):
+            with self.subTest(description=description):
+                self.assertEqual(
+                    parameters(example(description=[description]), "minsk")["pets"].casefold(),
+                    "без животных",
+                )
+
     def test_uncertain_and_conflicting_pets_conditions_remain_unknown(self):
         for description in (
             "Предпочтительно без детей и животных.",
@@ -125,6 +145,9 @@ class ListingTests(unittest.TestCase):
             "Сдам одному человеку без детей.",
             "Обсудим возможность проживания без детей и животных.",
             "Животные: можно; Сдам одному человеку без детей и животных.",
+            "Предпочтительно без детей, без животных.",
+            "Не обязательно без детей, без животных.",
+            "Животные: можно; Без детей, без животных.",
         ):
             with self.subTest(description=description):
                 self.assertIsNone(parameters(example(description=[description]), "gomel")["pets"])

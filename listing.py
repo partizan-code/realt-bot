@@ -81,7 +81,10 @@ def parameters(ad, city):
     }
     for field, pattern in phrases.items():
         prefix = (
-            r"(?:сдам\s+(?:(?:одному человеку|одному|паре|семье)\s+)?)?" if field == "pets" else ""
+            r"(?:сдам\s+(?:(?:одному человеку|одному|паре|семье)\s+)?)?"
+            r"(?:без\s+детей\s*,\s*)?"
+            if field == "pets"
+            else ""
         )
         found = re.findall(
             rf"(?:^|[\n;.!?])\s*{prefix}({pattern})\s*(?=$|[\n;.!?])", description, re.I
