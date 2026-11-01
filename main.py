@@ -13,6 +13,7 @@ from playwright.async_api import async_playwright
 
 import config
 from browser_session import BrowserSession, BrowserUnavailable, raise_for_browser_error
+from listing import parameters, render_post
 from logger_config import setup_logger
 
 
@@ -57,14 +58,17 @@ async def extract_ad(card):
         return [value.strip() for value in values if value.strip()]
 
     # На сайте параметры разделены пустыми span с CSS-маркерами, а не пробелами.
-    title_text = await card.locator(config.AD_SELECTORS["title"]).first.evaluate(
-        "node => Array.from(node.childNodes, part => part.textContent.trim()).filter(Boolean).join(' ')",
-        timeout=config.FIELD_TIMEOUT_MS,
+    title_node = card.locator(config.AD_SELECTORS["title"]).first
+    title_text = (
+        await title_node.evaluate(
+            "node => Array.from(node.childNodes, part => part.textContent.trim()).filter(Boolean).join(' ')",
+            timeout=config.FIELD_TIMEOUT_MS,
+        )
+        if await title_node.count()
+        else ""
     )
     title = [" ".join(title_text.split())] if title_text.strip() else []
     price_byn = await texts(config.AD_SELECTORS["price_byn"])
-    if not title or not price_byn:
-        raise ValueError("Не распознаны параметры или цена объявления")
     address = await texts(config.AD_SELECTORS["address"])
     if not address:
         address = await texts(config.AD_SELECTORS["address_fallback"])
@@ -80,7 +84,7 @@ async def extract_ad(card):
             ):
                 img_link = source
                 break
-    return {
+    ad = {
         "id": id_ads,
         "title": title,
         "price_usd": price_usd,
@@ -92,6 +96,8 @@ async def extract_ad(card):
         "date": date_ads.strip(),
         "time": published_time,
     }
+    ad["parameters"] = parameters(ad, "")
+    return ad
 
 
 async def parse_new_ads(page, city):
@@ -140,6 +146,7 @@ async def parse_new_ads(page, city):
                 stats["known"] += 1
                 continue
             new_ads.append(ad)
+            ad["parameters"] = parameters(ad, city)
             seen.add(ad["id"])
         except Exception as error:
             raise_for_browser_error(error)
@@ -170,23 +177,18 @@ async def send_to_telegram(ads, city):
     for ad in ads:
         if ad["id"] in seen:
             continue
-        text = config.TELEGRAM_MESSAGE_TEMPLATE.format(
-            title=ad["title"][0] if ad["title"] else None,
-            price=ad["price_byn"][0] if ad["price_byn"] else None,
-            address=ad["address"][0] if ad["address"] else None,
-            description=ad["description"][0] if ad["description"] else None,
-            link=ad["link"],
-            time=ad["time"].strftime(config.TELEGRAM_TIME_FORMAT),
-            signature=config.SIGNATURE,
-        )
         try:
+            text = render_post(ad, city)
+            caption = render_post(ad, city, config.TELEGRAM_CAPTION_LIMIT)
+            if text is None:
+                raise ValueError("Обязательные поля поста превышают лимит Telegram")
             async with Bot(
                 token=config.TOKEN,
                 default=DefaultBotProperties(parse_mode=config.TELEGRAM_PARSE_MODE),
             ) as bot:
-                if ad["img"]:
+                if ad["img"] and caption is not None:
                     try:
-                        await bot.send_photo(chat_id=channel_id, photo=ad["img"], caption=text)
+                        await bot.send_photo(chat_id=channel_id, photo=ad["img"], caption=caption)
                     except TelegramBadRequest as error:
                         # Telegram однозначно отклонил фото — публикуем само объявление.
                         logger.warning(

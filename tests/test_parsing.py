@@ -1,6 +1,7 @@
 import unittest
 from collections import deque
 from datetime import time
+from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 from log_capture import capture_logs
@@ -63,10 +64,43 @@ class ParsingTests(unittest.IsolatedAsyncioTestCase):
         ad = await main.extract_ad(self.page.locator(config.CARD_SELECTOR))
         self.assertEqual(ad["title"], ["1-комн. 40 м² 8/9 эт."])
 
-    async def test_missing_required_field_is_not_a_valid_ad(self):
+    async def test_missing_price_does_not_prevent_parsing(self):
         await self.page.set_content(card(price=""))
-        with self.assertRaisesRegex(ValueError, "параметры или цена"):
-            await main.extract_ad(self.page.locator(config.CARD_SELECTOR))
+        ad = await main.extract_ad(self.page.locator(config.CARD_SELECTOR))
+        self.assertIsNone(ad["parameters"]["price_byn_month"])
+        self.assertEqual(ad["parameters"]["rooms"], 2)
+
+    async def test_structured_values_from_anonymized_html_variants(self):
+        for price, title, expected_price, expected_area in (
+            ("1\u00a0200,50 BYN/мес.", "2-комн. 50,5 м² 3/9 эт.", "1200.50", "50.5"),
+            ("900.25 руб. в месяц", "1-комн. 40.25 м2 1/5 эт.", "900.25", "40.25"),
+            ("договорная", "неизвестные параметры", None, None),
+        ):
+            with self.subTest(price=price):
+                await self.page.set_content(card(price=price, title=title))
+                ad = await main.extract_ad(self.page.locator(config.CARD_SELECTOR))
+                self.assertEqual(
+                    ad["parameters"]["price_byn_month"],
+                    Decimal(expected_price) if expected_price else None,
+                )
+                self.assertEqual(
+                    ad["parameters"]["area_m2"], Decimal(expected_area) if expected_area else None
+                )
+                self.assertEqual(ad["price_byn"], [price])
+
+    async def test_explicit_conditions_from_listing_need_no_detail_requests(self):
+        result, _ = await self.parse(
+            card(description="Район: Советский; Метро: Тестовая; Залог: 500 BYN; Животные: нельзя")
+        )
+        self.assertEqual(result[0]["parameters"]["district"], "Советский")
+        self.assertEqual(result[0]["parameters"]["deposit"], "500 BYN")
+        self.assertEqual(result[0]["parameters"]["pets"], "нельзя")
+
+    async def test_absent_parameter_node_does_not_wait_or_drop_card(self):
+        await self.page.set_content(card().replace("changedHash_parameters", "unrelated"))
+        ad = await main.extract_ad(self.page.locator(config.CARD_SELECTOR))
+        self.assertEqual(ad["title"], [])
+        self.assertIsNone(ad["parameters"]["rooms"])
 
     async def parse(self, html, history=()):
         await self.page.set_content(html)
@@ -102,7 +136,7 @@ class ParsingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_broken_fields_are_reported_as_failure(self):
         with capture_logs(level="ERROR") as logs:
-            result, save = await self.parse(card(price=""))
+            result, save = await self.parse(card(date="неизвестная дата"))
         self.assertIsNone(result)
         save.assert_not_awaited()
         self.assertTrue(any("Ни одна карточка" in line for line in logs))

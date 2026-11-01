@@ -21,15 +21,46 @@ TELEGRAM_PARSE_MODE = "HTML"
 TELEGRAM_DISABLE_LINK_PREVIEW = True
 TELEGRAM_SEND_DELAY_SECONDS = 3
 TELEGRAM_TIME_FORMAT = "%H:%M"
-TELEGRAM_MESSAGE_TEMPLATE = (
-    "✅ <b>{title}</b>\n"
-    "💰 <b>{price}</b>\n\n"
-    "Адрес: <b>{address}</b>\n\n"
-    "📌 <i>{description}</i>\n\n"
-    '🔥 <b><a href="{link}">Ссылка на объявление Kufar</a></b>\n\n'
-    "⌛ Размещено: {time}\n\n"
-    "{signature}"
-)
+TELEGRAM_CAPTION_LIMIT = 1024
+TELEGRAM_TEXT_LIMIT = 4096
+# Верхние границы исключаются: 0–799,99; 800–1199,99; 1200–1799,99; 1800+.
+PRICE_TAG_BANDS = ((800, "до800BYN"), (1200, "800_1200BYN"), (1800, "1200_1800BYN"))
+PRICE_TAG_LAST = "от1800BYN"
+DISTRICTS = {
+    "minsk": (
+        "Заводской",
+        "Ленинский",
+        "Московский",
+        "Октябрьский",
+        "Партизанский",
+        "Первомайский",
+        "Советский",
+        "Фрунзенский",
+        "Центральный",
+    ),
+    "gomel": ("Железнодорожный", "Новобелицкий", "Советский", "Центральный"),
+    "mogilev": ("Ленинский", "Октябрьский"),
+    "vitebsk": ("Железнодорожный", "Октябрьский", "Первомайский"),
+    "grodno": ("Ленинский", "Октябрьский"),
+    "brest": ("Ленинский", "Московский"),
+}
+# Только явно подписанные сведения; произвольный текст без метки не интерпретируется.
+RENT_CONDITION_LABELS = {
+    "deposit": ("Залог", "Депозит"),
+    "commission": ("Комиссия",),
+    "utilities": ("Коммунальные платежи", "Коммунальные", "КУ"),
+    "rental_term": ("Срок аренды",),
+    "pets": ("Животные", "С животными"),
+}
+POST_CONDITION_NAMES = {
+    "deposit": "Залог",
+    "commission": "Комиссия",
+    "utilities": "Коммунальные",
+    "rental_term": "Срок аренды",
+    "pets": "Животные",
+}
+POST_DESCRIPTION_LIMIT = 500
+POST_CONDITION_LIMIT = 120
 SIGNATURE = (
     '<b><a href="https://t.me/realt_by_minsk">МИНСК</a> | '
     '<a href="https://t.me/realt_by_gomel">ГОМЕЛЬ</a> | '

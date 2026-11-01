@@ -12,6 +12,7 @@ from log_capture import capture_logs
 
 import config
 import main
+from listing import render_post, telegram_length
 
 
 def ad(ad_id, image=None):
@@ -55,7 +56,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         await main.send_to_telegram([ad("new")], "minsk")
         self.assertEqual(self.saved(), ["old", "new"])
         self.assertEqual(self.factory.call_args.kwargs["token"], "test-token")
-        self.assertIn("1-комн. 40 м² 8/9 эт.", self.bot.send_message.call_args.kwargs["text"])
+        self.assertIn("1-комн. · 40 м²", self.bot.send_message.call_args.kwargs["text"])
 
     async def test_failed_message_remains_eligible_for_retry(self):
         self.bot.send_message.side_effect = RuntimeError("temporary failure")
@@ -91,6 +92,28 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
         self.bot.send_photo.assert_awaited_once()
         self.bot.send_message.assert_not_awaited()
+        self.assertEqual(self.saved(), ["old", "new"])
+
+    async def test_long_post_uses_caption_limit_and_full_text_fallback(self):
+        item = ad("new", "https://example.invalid/image.jpg")
+        item["description"] = ["Животные: нельзя; " + "Красивый вид из окна. " * 200]
+        self.bot.send_photo.side_effect = self.photo_error(TelegramBadRequest)
+        with capture_logs(level="WARNING"):
+            await main.send_to_telegram([item], "minsk")
+        caption = self.bot.send_photo.call_args.kwargs["caption"]
+        text = self.bot.send_message.call_args.kwargs["text"]
+        self.assertLessEqual(telegram_length(caption), config.TELEGRAM_CAPTION_LIMIT)
+        self.assertLessEqual(telegram_length(text), config.TELEGRAM_TEXT_LIMIT)
+        self.assertIn("Животные: нельзя", caption)
+        self.assertIn("Животные: нельзя", text)
+        self.assertEqual(text, render_post(item, "minsk"))
+        self.assertEqual(self.saved(), ["old", "new"])
+
+    async def test_insufficient_caption_budget_sends_text(self):
+        with patch.object(config, "TELEGRAM_CAPTION_LIMIT", 30):
+            await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
+        self.bot.send_photo.assert_not_awaited()
+        self.bot.send_message.assert_awaited_once()
         self.assertEqual(self.saved(), ["old", "new"])
 
     def photo_error(self, error_type):
