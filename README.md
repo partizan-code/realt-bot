@@ -69,7 +69,7 @@ uv run --locked python -m unittest discover -s tests -v
 ```text
 main.py             # Парсинг, история ID, отправка и цикл обработки
 config.py           # Настройки, константы и загрузка .env
-logger_config.py    # Логирование в консоль и файл ошибок
+logger_config.py    # Настройка Loguru: консоль и файл ошибок
 browser_session.py  # Перезапуск Chromium после падения или закрытия
 pyproject.toml      # Метаданные, зависимости и настройки Ruff
 uv.lock             # Точные версии зависимостей
@@ -82,6 +82,8 @@ realt-bot.service   # Шаблон systemd unit
 ```
 
 Правила разработки — в [AGENTS.md](AGENTS.md), состояние работ — в [PROJECT_STATUS.md](PROJECT_STATUS.md).
+
+Логирование реализовано через Loguru: INFO и выше выводятся в консоль, ERROR и выше — в `error.log` в UTF-8. Уровни и формат задаются в `config.py`; формат использует поля Loguru (`{time}`, `{level}`, `{message}`). Повторный вызов `setup_logger()` не дублирует записи. Расширенный вывод значений локальных переменных в исключениях отключён.
 
 ## Ограничения
 

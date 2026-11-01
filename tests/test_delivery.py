@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.methods import SendPhoto
+from log_capture import capture_logs
 
 import config
 import main
@@ -58,7 +59,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_message_remains_eligible_for_retry(self):
         self.bot.send_message.side_effect = RuntimeError("temporary failure")
-        with self.assertLogs(main.logger, level="ERROR"):
+        with capture_logs(level="ERROR"):
             await main.send_to_telegram([ad("new")], "minsk")
         self.assertEqual(self.saved(), ["old"])
         self.bot.send_message.side_effect = None
@@ -67,7 +68,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_partial_success_does_not_confirm_failed_message(self):
         self.bot.send_message.side_effect = [RuntimeError("temporary failure"), None]
-        with self.assertLogs(main.logger, level="ERROR"):
+        with capture_logs(level="ERROR"):
             await main.send_to_telegram([ad("failed"), ad("sent")], "minsk")
         self.assertEqual(self.saved(), ["old", "sent"])
 
@@ -107,7 +108,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(kwargs["text"], self.bot.send_photo.call_args.kwargs["caption"])
 
         self.bot.send_message.side_effect = deliver
-        with self.assertLogs(main.logger, level="WARNING"):
+        with capture_logs(level="WARNING"):
             await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
         self.bot.send_message.assert_awaited_once()
         self.assertEqual(self.saved(), ["old", "new"])
@@ -115,14 +116,14 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_text_fallback_does_not_confirm_id(self):
         self.bot.send_photo.side_effect = self.photo_error(TelegramBadRequest)
         self.bot.send_message.side_effect = RuntimeError("temporary failure")
-        with self.assertLogs(main.logger, level="WARNING"):
+        with capture_logs(level="WARNING"):
             await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
         self.bot.send_message.assert_awaited_once()
         self.assertEqual(self.saved(), ["old"])
 
     async def test_ambiguous_network_failure_does_not_send_duplicate_text(self):
         self.bot.send_photo.side_effect = self.photo_error(TelegramNetworkError)
-        with self.assertLogs(main.logger, level="ERROR"):
+        with capture_logs(level="ERROR"):
             await main.send_to_telegram([ad("new", "https://example.invalid/image.jpg")], "minsk")
         self.bot.send_message.assert_not_awaited()
         self.assertEqual(self.saved(), ["old"])

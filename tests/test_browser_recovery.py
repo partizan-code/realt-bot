@@ -2,6 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from log_capture import capture_logs
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
@@ -62,7 +63,7 @@ class BrowserRecoveryTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "main.parse_new_ads", AsyncMock(side_effect=[BrowserUnavailable("crash"), []])
             ) as parse,
-            self.assertLogs(main.logger, level="WARNING"),
+            capture_logs(level="WARNING"),
         ):
             await main.process_city(self.session, "minsk")
         self.assertEqual(parse.await_count, 2)
@@ -76,7 +77,7 @@ class BrowserRecoveryTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "main.parse_new_ads", AsyncMock(side_effect=BrowserUnavailable("crash"))
             ) as parse,
-            self.assertLogs(main.logger, level="ERROR"),
+            capture_logs(level="ERROR"),
         ):
             await main.process_city(self.session, "minsk")
         self.assertEqual(parse.await_count, 2)

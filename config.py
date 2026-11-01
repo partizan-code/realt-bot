@@ -1,6 +1,5 @@
 """Настройки бота. Секреты загружаются из .env только при вызове configure()."""
 
-import logging
 from os import getenv
 from pathlib import Path
 
@@ -86,11 +85,14 @@ AD_SELECTORS = {
 }
 
 # Логирование.
-LOG_LEVEL = logging.INFO
-CONSOLE_LOG_LEVEL = logging.INFO
-FILE_LOG_LEVEL = logging.ERROR
+LOG_LEVEL = "INFO"
+CONSOLE_LOG_LEVEL = "INFO"
+FILE_LOG_LEVEL = "ERROR"
 LOG_FILE = "error.log"
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+LOG_FILE_ENCODING = "utf-8"
+LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss,SSS} - {name} - {level} - {message}"
+LOG_BACKTRACE = False
+LOG_DIAGNOSE = False
 
 # Отдельная диагностика сайта: не требует .env и не публикует сообщения.
 DIAGNOSTIC_DEFAULT_CITY = CITIES[0]

@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 from collections import deque
 from datetime import time
 from urllib.parse import urljoin, urlsplit
@@ -8,14 +7,13 @@ from urllib.parse import urljoin, urlsplit
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramBadRequest
+from loguru import logger
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
 import config
 from browser_session import BrowserSession, BrowserUnavailable, raise_for_browser_error
 from logger_config import setup_logger
-
-logger = logging.getLogger(__name__)
 
 
 async def load_existing_ids(city):
@@ -103,11 +101,11 @@ async def parse_new_ads(page, city):
             url, wait_until=config.NAVIGATION_WAIT_UNTIL, timeout=config.NAVIGATION_TIMEOUT_MS
         )
         if response and response.status >= 400:
-            logger.error("Kufar вернул HTTP %s для %s", response.status, city)
+            logger.error("Kufar вернул HTTP {} для {}", response.status, city)
             return None
     except Exception as error:
         raise_for_browser_error(error)
-        logger.error("Не загрузилась страница %s: %s", city, error)
+        logger.error("Не загрузилась страница {}: {}", city, error)
         return None
 
     try:
@@ -123,7 +121,7 @@ async def parse_new_ads(page, city):
         ads = await page.locator(config.CARD_SELECTOR).all()
     except PlaywrightTimeoutError:
         logger.error(
-            "Не найдены карточки Kufar для %s: проверьте разметку или доступ к сайту", city
+            "Не найдены карточки Kufar для {}: проверьте разметку или доступ к сайту", city
         )
         return None
 
@@ -146,10 +144,10 @@ async def parse_new_ads(page, city):
         except Exception as error:
             raise_for_browser_error(error)
             stats["invalid"] += 1
-            logger.warning("Карточка %s пропущена: %s", city, error)
+            logger.warning("Карточка {} пропущена: {}", city, error)
 
     logger.info(
-        "%s: карточек=%s, распознано=%s, сегодня=%s, известных=%s, ошибок=%s, новых=%s",
+        "{}: карточек={}, распознано={}, сегодня={}, известных={}, ошибок={}, новых={}",
         city,
         len(ads),
         stats["dated"],
@@ -159,7 +157,7 @@ async def parse_new_ads(page, city):
         len(new_ads),
     )
     if not stats["dated"]:
-        logger.error("Ни одна карточка %s не распознана: проверьте селекторы полей", city)
+        logger.error("Ни одна карточка {} не распознана: проверьте селекторы полей", city)
         return None
     return new_ads
 
@@ -192,7 +190,7 @@ async def send_to_telegram(ads, city):
                     except TelegramBadRequest as error:
                         # Telegram однозначно отклонил фото — публикуем само объявление.
                         logger.warning(
-                            "Фото %s отклонено Telegram, отправляем текст: %s", city, error
+                            "Фото {} отклонено Telegram, отправляем текст: {}", city, error
                         )
                         await bot.send_message(
                             chat_id=channel_id,
@@ -227,7 +225,7 @@ async def process_city(session, city):
         except BrowserUnavailable as error:
             session.invalidate()
             logger.warning(
-                "Сбой Chromium для %s, попытка %s/%s: %s",
+                "Сбой Chromium для {}, попытка {}/{}: {}",
                 city,
                 attempt + 1,
                 config.CITY_ATTEMPTS,
@@ -237,19 +235,19 @@ async def process_city(session, city):
         except Exception as error:
             if session.broken:
                 session.invalidate()
-                logger.warning("Не удалось восстановить Chromium для %s: %s", city, error)
+                logger.warning("Не удалось восстановить Chromium для {}: {}", city, error)
                 continue
-            logger.error("Ошибка обработки %s: %s", city, error)
+            logger.error("Ошибка обработки {}: {}", city, error)
             return
         if new_ads is None:
-            logger.info("%s пропущен из-за ошибки загрузки или разметки", city)
+            logger.info("{} пропущен из-за ошибки загрузки или разметки", city)
         else:
-            logger.info("Найдено %s новых объявлений %s", len(new_ads), city)
+            logger.info("Найдено {} новых объявлений {}", len(new_ads), city)
             # Ошибка доставки или записи истории не должна повторять парсинг как crash.
             await send_to_telegram(new_ads, city=city)
         return
     logger.error(
-        "Город %s пропущен: неудачных попыток восстановления Chromium — %s",
+        "Город {} пропущен: неудачных попыток восстановления Chromium — {}",
         city,
         config.CITY_ATTEMPTS,
     )
@@ -295,5 +293,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except ValueError as error:
-        logger.error("Ошибка конфигурации: %s", error)
+        logger.error("Ошибка конфигурации: {}", error)
         raise SystemExit(1) from None

@@ -3,6 +3,7 @@ from collections import deque
 from datetime import time
 from unittest.mock import AsyncMock, patch
 
+from log_capture import capture_logs
 from playwright.async_api import async_playwright
 
 import config
@@ -93,15 +94,15 @@ class ParsingTests(unittest.IsolatedAsyncioTestCase):
         save.assert_not_awaited()
 
     async def test_known_ads_are_logged_as_known(self):
-        with self.assertLogs(main.logger, level="INFO") as logs:
+        with capture_logs(level="INFO") as logs:
             result, save = await self.parse(card(), history=("1001",))
         self.assertEqual(result, [])
         save.assert_not_awaited()
-        self.assertTrue(any("известных=1" in line for line in logs.output))
+        self.assertTrue(any("известных=1" in line for line in logs))
 
     async def test_broken_fields_are_reported_as_failure(self):
-        with self.assertLogs(main.logger, level="ERROR") as logs:
+        with capture_logs(level="ERROR") as logs:
             result, save = await self.parse(card(price=""))
         self.assertIsNone(result)
         save.assert_not_awaited()
-        self.assertTrue(any("Ни одна карточка" in line for line in logs.output))
+        self.assertTrue(any("Ни одна карточка" in line for line in logs))

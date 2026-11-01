@@ -1,29 +1,24 @@
-import logging
 import sys
+
+from loguru import logger
 
 import config
 
 
 def setup_logger():
-    """Настройка основного логгера"""
-    logger = logging.getLogger()
-    logger.setLevel(config.LOG_LEVEL)  # общий уровень логирования
-
-    # Форматтер
-    formatter = logging.Formatter(config.LOG_FORMAT)
-
-    # Handler для консоли — все уровни
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(config.CONSOLE_LOG_LEVEL)
-
-    # Handler для файла — только ERROR
-    file_handler = logging.FileHandler(config.LOG_FILE)
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(config.FILE_LOG_LEVEL)
-
-    # Добавляем handlers к логгеру
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-
+    """Настроить Loguru: консоль и файл ошибок, без дублирования обработчиков."""
+    logger.remove()
+    options = {
+        "format": config.LOG_FORMAT,
+        "filter": lambda record: record["level"].no >= logger.level(config.LOG_LEVEL).no,
+        "backtrace": config.LOG_BACKTRACE,
+        "diagnose": config.LOG_DIAGNOSE,
+    }
+    logger.add(sys.stdout, level=config.CONSOLE_LOG_LEVEL, **options)
+    logger.add(
+        config.LOG_FILE,
+        level=config.FILE_LOG_LEVEL,
+        encoding=config.LOG_FILE_ENCODING,
+        **options,
+    )
     return logger

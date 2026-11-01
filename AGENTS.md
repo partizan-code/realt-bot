@@ -6,7 +6,7 @@
 
 - `main.py`: парсинг через Playwright, история ID и отправка через aiogram.
 - `config.py`: настройки, константы, селекторы, URL и явная загрузка `.env`.
-- `logger_config.py`: консольное логирование и файл `error.log`.
+- `logger_config.py`: централизованная настройка Loguru для консоли и `error.log`.
 - `browser_session.py`: состояние Chromium и пересоздание браузера после аварии.
 - `pyproject.toml`, `uv.lock`, `.python-version`: зависимости, настройки Ruff и версия Python.
 - `tests/`: тесты конфигурации; `.github/workflows/`: CI.
@@ -30,6 +30,8 @@ Python 3.13 выбран в `.python-version`; минимум — 3.12. Доба
 ## Стиль и именование
 
 Используйте четыре пробела, `snake_case` для функций, переменных и модулей, `UPPER_SNAKE_CASE` для констант. Сохраняйте асинхронную модель. Используйте переносимые пути через `pathlib` или `os.path`. Применяйте `uv run --locked ruff check --fix .` для импортов и `uv run --locked ruff format .` для форматирования.
+
+Логирование всегда реализуйте через Loguru: `from loguru import logger`. Настройку обработчиков храните в `logger_config.py`, параметры — в `config.py`. Для аргументов сообщений используйте `{}`, а не `%s`.
 
 ## Тесты
 
