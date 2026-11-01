@@ -89,8 +89,7 @@ class ParsingTests(unittest.IsolatedAsyncioTestCase):
             history=("1001",),
         )
         self.assertEqual([ad["id"] for ad in result], ["1002"])
-        save.assert_awaited_once()
-        self.assertEqual(list(save.call_args.args[0]), ["1001", "1002"])
+        save.assert_not_awaited()
 
     async def test_known_ads_are_logged_as_known(self):
         with self.assertLogs(main.logger, level="INFO") as logs:

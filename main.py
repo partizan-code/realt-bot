@@ -179,7 +179,6 @@ async def parse_new_ads(page, city):
                 stats["known"] += 1
                 continue
             new_ads.append(ad)
-            existing_ids.append(ad["id"])
             seen.add(ad["id"])
         except Exception as error:
             stats["invalid"] += 1
@@ -198,15 +197,17 @@ async def parse_new_ads(page, city):
     if not stats["dated"]:
         logger.error("Ни одна карточка %s не распознана: проверьте селекторы полей", city)
         return None
-    if new_ads:
-        await save_ids(existing_ids, city)
     return new_ads
 
 
 async def send_to_telegram(ads, city):
     channel_id = cities_ch_ids[city]
+    existing_ids = await load_existing_ids(city)
+    seen = set(existing_ids)
 
     for ad in ads:
+        if ad["id"] in seen:
+            continue
         text = (
             f"✅ <b>{ad['title'][0] if ad['title'] else None}</b>\n"
             f"💰 <b>{ad['price_byn'][0] if ad['price_byn'] else None}</b>\n\n"
@@ -228,6 +229,11 @@ async def send_to_telegram(ads, city):
                     )
         except Exception as e:
             logger.error(f"Ошибка отправки поста в канал {channel_id}: {e}")
+        else:
+            # Подтверждаем каждое объявление сразу после успешной доставки.
+            existing_ids.append(ad["id"])
+            await save_ids(existing_ids, city)
+            seen.add(ad["id"])
         await asyncio.sleep(3)
 
 
