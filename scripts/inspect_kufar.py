@@ -3,40 +3,35 @@
 import argparse
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
-CITIES = ("minsk", "gomel", "mogilev", "vitebsk", "grodno", "brest")
-OLD_SELECTORS = {
-    "date": ".styles-module-scss-module__ykXXHG__date",
-    "title": ".styles-module-scss-module__ykXXHG__parameters",
-    "address": ".styles-module-scss-module__ykXXHG__address",
-    "description": "p.styles-module-scss-module__ykXXHG__body",
-    "price_byn": ".styles-module-scss-module__knBPIa__price__byr",
-    "price_usd": ".styles_price__usd__HpXMa",
-}
+# Поддерживаем прямой запуск: python scripts/inspect_kufar.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import config  # noqa: E402
 
 
 async def collect_report(page):
     """Считать совпадения и признаки карточек, не предполагая новые имена классов."""
     report = await page.evaluate(
-        """() => ({
-            section_count: document.querySelectorAll('section').length,
-            date_candidates: [...document.querySelectorAll('[class*="date"], time')]
-                .slice(0, 40).map(node => ({
+        """({limits, selectors}) => ({
+            section_count: document.querySelectorAll(selectors.sections).length,
+            date_candidates: [...document.querySelectorAll(selectors.dates)]
+                .slice(0, limits.dates).map(node => ({
                     tag: node.tagName,
                     class: node.getAttribute('class'),
                     datetime: node.getAttribute('datetime'),
-                    text: node.textContent.trim().slice(0, 100)
+                    text: node.textContent.trim().slice(0, limits.text)
                 })),
-            section_samples: [...document.querySelectorAll('section')].slice(0, 6)
+            section_samples: [...document.querySelectorAll(selectors.sections)].slice(0, limits.sections)
                 .map(section => ({
                     class: section.getAttribute('class'),
                     attributes: [...section.attributes].map(a => [a.name, a.value]),
-                    link_count: section.querySelectorAll('a').length,
-                    descendants: [...section.querySelectorAll('*')].slice(0, 100)
+                    link_count: section.querySelectorAll(selectors.links).length,
+                    descendants: [...section.querySelectorAll(selectors.descendants)].slice(0, limits.descendants)
                         .map(node => ({
                             tag: node.tagName,
                             class: node.getAttribute('class'),
@@ -44,30 +39,40 @@ async def collect_report(page):
                             itemprop: node.getAttribute('itemprop')
                         }))
                 }))
-        })"""
+        })""",
+        {"limits": config.DIAGNOSTIC_LIMITS, "selectors": config.DIAGNOSTIC_SELECTORS},
     )
     report["old_selector_matches"] = {
-        name: await page.locator(selector).count() for name, selector in OLD_SELECTORS.items()
+        name: await page.locator(selector).count()
+        for name, selector in config.LEGACY_AD_SELECTORS.items()
     }
     return report
 
 
 async def inspect(city, output_dir):
-    url = f"https://re.kufar.by/l/{city}/snyat/kvartiru?cur=BYN&size=30&sort=lst.d"
+    url = config.LISTING_URL_TEMPLATE.format(city=city)
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
+        browser = await playwright.chromium.launch(headless=config.BROWSER_HEADLESS)
         try:
-            context = await browser.new_context(timezone_id="Europe/Minsk")
+            context = await browser.new_context(**config.BROWSER_CONTEXT_OPTIONS)
             page = await context.new_page()
             print(f"Открываю страницу города {city}...", flush=True)
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            response = await page.goto(
+                url,
+                wait_until=config.NAVIGATION_WAIT_UNTIL,
+                timeout=config.DIAGNOSTIC_NAVIGATION_TIMEOUT_MS,
+            )
             try:
-                await page.get_by_role("button", name="Принять", exact=True).click(timeout=3000)
+                await page.get_by_role(
+                    "button", name=config.COOKIE_ACCEPT_BUTTON_TEXT, exact=True
+                ).click(timeout=config.COOKIE_TIMEOUT_MS)
             except PlaywrightTimeoutError:
                 pass
             # Дожидаемся содержимого карточек, а не только появления контейнеров.
             try:
-                await page.locator("section a[href]").first.wait_for(timeout=15000)
+                await page.locator(config.DIAGNOSTIC_READY_SELECTOR).first.wait_for(
+                    timeout=config.DIAGNOSTIC_CARDS_TIMEOUT_MS
+                )
             except PlaywrightTimeoutError:
                 print("Ссылки внутри section не появились; сохраню страницу для диагностики.")
             report = await collect_report(page)
@@ -93,9 +98,9 @@ async def inspect(city, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--city", choices=CITIES, default="minsk")
+    parser.add_argument("--city", choices=config.CITIES, default=config.DIAGNOSTIC_DEFAULT_CITY)
     args = parser.parse_args()
-    output_dir = Path(__file__).resolve().parents[1] / "tmp" / "kufar-diagnostic"
+    output_dir = config.DIAGNOSTIC_OUTPUT_DIR
     try:
         asyncio.run(inspect(args.city, output_dir))
     except Exception as error:

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.methods import SendPhoto
 
+import config
 import main
 
 
@@ -35,9 +36,11 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.bot.send_message = AsyncMock()
         self.bot.send_photo = AsyncMock()
         factory = self.enterContext(patch("main.Bot"))
+        self.factory = factory
         factory.return_value.__aenter__ = AsyncMock(return_value=self.bot)
         factory.return_value.__aexit__ = AsyncMock(return_value=False)
-        self.enterContext(patch.dict(main.cities_ch_ids, {"minsk": -1000}))
+        self.enterContext(patch.dict(config.CITIES_CH_IDS, {"minsk": -1000}))
+        self.enterContext(patch("config.TOKEN", "test-token"))
         self.enterContext(patch("main.asyncio.sleep", AsyncMock()))
 
     def saved(self):
@@ -50,6 +53,8 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.bot.send_message.side_effect = deliver
         await main.send_to_telegram([ad("new")], "minsk")
         self.assertEqual(self.saved(), ["old", "new"])
+        self.assertEqual(self.factory.call_args.kwargs["token"], "test-token")
+        self.assertIn("1-комн. 40 м² 8/9 эт.", self.bot.send_message.call_args.kwargs["text"])
 
     async def test_failed_message_remains_eligible_for_retry(self):
         self.bot.send_message.side_effect = RuntimeError("temporary failure")

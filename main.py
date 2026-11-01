@@ -1,91 +1,47 @@
 import asyncio
 import json
 import logging
-import os
 from collections import deque
 from datetime import time
-from os import getenv
 from urllib.parse import urljoin, urlsplit
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from dotenv import load_dotenv
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
+import config
 from browser_session import BrowserSession, BrowserUnavailable, raise_for_browser_error
 from logger_config import setup_logger
 
 logger = logging.getLogger(__name__)
 
-# Конфигурация
-MAX_HISTORY = 50  # Храним только 50 последних ID
-TOKEN = None
-ADMIN_ID = None
-CITIES = ("minsk", "gomel", "mogilev", "vitebsk", "grodno", "brest")
-cities_ch_ids = {}
-
-SIGNATURE = (
-    '<b><a href="https://t.me/realt_by_minsk">МИНСК</a> | '
-    '<a href="https://t.me/realt_by_gomel">ГОМЕЛЬ</a> | '
-    '<a href="https://t.me/realt_by_mogilev">МОГИЛЕВ</a> | '
-    '<a href="https://t.me/realt_by_vitebsk">ВИТЕБСК</a> | '
-    '<a href="https://t.me/realt_by_grodno">ГРОДНО</a> | '
-    '<a href="https://t.me/realt_by_brest">БРЕСТ</a></b>'
-)
-
-
-def configure():
-    """Проверить окружение перед запуском, не раскрывая его значения в ошибках."""
-    global TOKEN, ADMIN_ID, cities_ch_ids
-    load_dotenv()
-    id_names = ("ADMIN_ID", *(f"{city.upper()}_CH_ID" for city in CITIES))
-    missing = [name for name in ("TOKEN", *id_names) if not getenv(name, "").strip()]
-    if missing:
-        raise ValueError("Заполните переменные в .env: " + ", ".join(missing))
-    ids = {}
-    for name in id_names:
-        try:
-            ids[name] = int(getenv(name))
-        except ValueError:
-            raise ValueError(f"{name} должен быть целым числом") from None
-    TOKEN = getenv("TOKEN").strip()
-    ADMIN_ID = ids["ADMIN_ID"]
-    cities_ch_ids = {city: ids[f"{city.upper()}_CH_ID"] for city in CITIES}
-
 
 async def load_existing_ids(city):
-    file_name = f"ads_ids_{city}.json"
+    file_name = config.HISTORY_FILE_TEMPLATE.format(city=city)
 
     try:
         with open(file_name, "r") as f:
             data = json.load(f)
             # Создаем deque с ограниченной длиной
-            return deque(data, maxlen=MAX_HISTORY)
+            return deque(data, maxlen=config.MAX_HISTORY)
     except (FileNotFoundError, json.JSONDecodeError):
-        return deque(maxlen=MAX_HISTORY)
+        return deque(maxlen=config.MAX_HISTORY)
 
 
 async def save_ids(ids, city):
-    file_name = f"ads_ids_{city}.json"
+    file_name = config.HISTORY_FILE_TEMPLATE.format(city=city)
     with open(file_name, "w") as f:
         # Сохраняем как обычный список
         json.dump(list(ids), f)
 
 
-CARD_SELECTOR = 'a[data-testid^="kufar-realty-card-"]'
-
-
-def field_selector(name):
-    """Искать смысловой суффикс CSS-класса независимо от хеша сборки."""
-    return f'[class$="_{name}"], [class*="_{name} "]'
-
-
 async def extract_ad(card):
     """Прочитать одну карточку; отсутствие обязательных полей — ошибка разметки."""
-    date_text = await card.locator(field_selector("date")).first.inner_text(timeout=1000)
+    date_text = await card.locator(config.AD_SELECTORS["date"]).first.inner_text(
+        timeout=config.FIELD_TIMEOUT_MS
+    )
     date_ads, separator, time_ads = date_text.strip().partition(",")
     if not separator:
         raise ValueError("Не распознана дата объявления")
@@ -93,7 +49,7 @@ async def extract_ad(card):
     href = await card.get_attribute("href")
     if not href:
         raise ValueError("У карточки отсутствует ссылка")
-    ads_link = urljoin("https://re.kufar.by", href).split("?")[0].split("#")[0]
+    ads_link = urljoin(config.KUFAR_BASE_URL, href).split("?")[0].split("#")[0]
     id_ads = urlsplit(ads_link).path.rstrip("/").split("/")[-1]
     if not id_ads.isdigit():
         raise ValueError("Не распознан ID объявления")
@@ -103,24 +59,24 @@ async def extract_ad(card):
         return [value.strip() for value in values if value.strip()]
 
     # На сайте параметры разделены пустыми span с CSS-маркерами, а не пробелами.
-    title_text = await card.locator(field_selector("parameters")).first.evaluate(
+    title_text = await card.locator(config.AD_SELECTORS["title"]).first.evaluate(
         "node => Array.from(node.childNodes, part => part.textContent.trim()).filter(Boolean).join(' ')",
-        timeout=1000,
+        timeout=config.FIELD_TIMEOUT_MS,
     )
     title = [" ".join(title_text.split())] if title_text.strip() else []
-    price_byn = await texts('[data-testid="card-price"]')
+    price_byn = await texts(config.AD_SELECTORS["price_byn"])
     if not title or not price_byn:
         raise ValueError("Не распознаны параметры или цена объявления")
-    address = await texts('[data-testid="card-adress"]')
+    address = await texts(config.AD_SELECTORS["address"])
     if not address:
-        address = await texts(field_selector("address"))
-    description = await texts(f"p:is({field_selector('body')})")
-    price_usd = await texts('[class*="_price__usd"]')
+        address = await texts(config.AD_SELECTORS["address_fallback"])
+    description = await texts(config.AD_SELECTORS["description"])
+    price_usd = await texts(config.AD_SELECTORS["price_usd"])
     img_link = None
-    for image in await card.locator("img[src]").all():
+    for image in await card.locator(config.AD_SELECTORS["images"]).all():
         source = await image.get_attribute("src")
         if source:
-            source = urljoin("https://re.kufar.by", source)
+            source = urljoin(config.KUFAR_BASE_URL, source)
             if urlsplit(source).scheme in ("http", "https") and not urlsplit(source).path.endswith(
                 ".svg"
             ):
@@ -141,9 +97,11 @@ async def extract_ad(card):
 
 
 async def parse_new_ads(page, city):
-    url = f"https://re.kufar.by/l/{city}/snyat/kvartiru?cur=BYN&size=30&sort=lst.d"
+    url = config.LISTING_URL_TEMPLATE.format(city=city)
     try:
-        response = await page.goto(url, wait_until="domcontentloaded")
+        response = await page.goto(
+            url, wait_until=config.NAVIGATION_WAIT_UNTIL, timeout=config.NAVIGATION_TIMEOUT_MS
+        )
         if response and response.status >= 400:
             logger.error("Kufar вернул HTTP %s для %s", response.status, city)
             return None
@@ -153,14 +111,16 @@ async def parse_new_ads(page, city):
         return None
 
     try:
-        await page.get_by_role("button", name="Принять", exact=True).click(timeout=3000)
+        await page.get_by_role("button", name=config.COOKIE_ACCEPT_BUTTON_TEXT, exact=True).click(
+            timeout=config.COOKIE_TIMEOUT_MS
+        )
         logger.info("Cookies accepted")
     except PlaywrightTimeoutError:
         logger.info("No cookie popup found")
 
     try:
-        await page.locator(CARD_SELECTOR).first.wait_for(timeout=10000)
-        ads = await page.locator(CARD_SELECTOR).all()
+        await page.locator(config.CARD_SELECTOR).first.wait_for(timeout=config.CARDS_TIMEOUT_MS)
+        ads = await page.locator(config.CARD_SELECTOR).all()
     except PlaywrightTimeoutError:
         logger.error(
             "Не найдены карточки Kufar для %s: проверьте разметку или доступ к сайту", city
@@ -175,7 +135,7 @@ async def parse_new_ads(page, city):
         try:
             ad = await extract_ad(card)
             stats["dated"] += 1
-            if ad["date"] != "Сегодня":
+            if ad["date"] != config.TODAY_LABEL:
                 continue
             stats["today"] += 1
             if ad["id"] in seen:
@@ -205,25 +165,26 @@ async def parse_new_ads(page, city):
 
 
 async def send_to_telegram(ads, city):
-    channel_id = cities_ch_ids[city]
+    channel_id = config.CITIES_CH_IDS[city]
     existing_ids = await load_existing_ids(city)
     seen = set(existing_ids)
 
     for ad in ads:
         if ad["id"] in seen:
             continue
-        text = (
-            f"✅ <b>{ad['title'][0] if ad['title'] else None}</b>\n"
-            f"💰 <b>{ad['price_byn'][0] if ad['price_byn'] else None}</b>\n\n"
-            f"Адрес: <b>{ad['address'][0] if ad['address'] else None}</b>\n\n"
-            f"📌 <i>{ad['description'][0] if ad['description'] else None}</i>\n\n"
-            f'🔥 <b><a href="{ad["link"]}">Ссылка на объявление Kufar</a></b>\n\n'
-            f"⌛ Размещено: {ad['time'].strftime('%H:%M')}\n\n"
-            f"{SIGNATURE}"
+        text = config.TELEGRAM_MESSAGE_TEMPLATE.format(
+            title=ad["title"][0] if ad["title"] else None,
+            price=ad["price_byn"][0] if ad["price_byn"] else None,
+            address=ad["address"][0] if ad["address"] else None,
+            description=ad["description"][0] if ad["description"] else None,
+            link=ad["link"],
+            time=ad["time"].strftime(config.TELEGRAM_TIME_FORMAT),
+            signature=config.SIGNATURE,
         )
         try:
             async with Bot(
-                token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+                token=config.TOKEN,
+                default=DefaultBotProperties(parse_mode=config.TELEGRAM_PARSE_MODE),
             ) as bot:
                 if ad["img"]:
                     try:
@@ -234,11 +195,15 @@ async def send_to_telegram(ads, city):
                             "Фото %s отклонено Telegram, отправляем текст: %s", city, error
                         )
                         await bot.send_message(
-                            chat_id=channel_id, text=text, disable_web_page_preview=True
+                            chat_id=channel_id,
+                            text=text,
+                            disable_web_page_preview=config.TELEGRAM_DISABLE_LINK_PREVIEW,
                         )
                 else:
                     await bot.send_message(
-                        chat_id=channel_id, text=text, disable_web_page_preview=True
+                        chat_id=channel_id,
+                        text=text,
+                        disable_web_page_preview=config.TELEGRAM_DISABLE_LINK_PREVIEW,
                     )
         except Exception as e:
             logger.error(f"Ошибка отправки поста в канал {channel_id}: {e}")
@@ -247,12 +212,12 @@ async def send_to_telegram(ads, city):
             existing_ids.append(ad["id"])
             await save_ids(existing_ids, city)
             seen.add(ad["id"])
-        await asyncio.sleep(3)
+        await asyncio.sleep(config.TELEGRAM_SEND_DELAY_SECONDS)
 
 
 async def process_city(session, city):
     """При аварии восстановить Chromium и один раз повторить текущий город."""
-    for attempt in range(2):
+    for attempt in range(config.CITY_ATTEMPTS):
         try:
             if session.broken:
                 await session.restart()
@@ -261,7 +226,13 @@ async def process_city(session, city):
             session.ensure_alive()
         except BrowserUnavailable as error:
             session.invalidate()
-            logger.warning("Сбой Chromium для %s, попытка %s/2: %s", city, attempt + 1, error)
+            logger.warning(
+                "Сбой Chromium для %s, попытка %s/%s: %s",
+                city,
+                attempt + 1,
+                config.CITY_ATTEMPTS,
+                error,
+            )
             continue
         except Exception as error:
             if session.broken:
@@ -277,36 +248,39 @@ async def process_city(session, city):
             # Ошибка доставки или записи истории не должна повторять парсинг как crash.
             await send_to_telegram(new_ads, city=city)
         return
-    logger.error("Город %s пропущен после двух неудачных попыток восстановления Chromium", city)
+    logger.error(
+        "Город %s пропущен: неудачных попыток восстановления Chromium — %s",
+        city,
+        config.CITY_ATTEMPTS,
+    )
 
 
 async def main():
-    configure()
-    RESTART_INTERVAL = 60
+    config.configure()
     cycle_count = 0
-    context_options = {"timezone_id": "Europe/Minsk"}
-    if os.path.isfile("re.kufar.by_cookies.json"):
-        context_options["storage_state"] = "re.kufar.by_cookies.json"
+    context_options = dict(config.BROWSER_CONTEXT_OPTIONS)
+    if config.COOKIE_STORAGE_FILE.is_file():
+        context_options["storage_state"] = str(config.COOKIE_STORAGE_FILE)
 
     async with async_playwright() as p:
         session = BrowserSession(p, context_options)
         try:
             while True:
                 cycle_count += 1
-                if cycle_count > RESTART_INTERVAL:
+                if cycle_count > config.BROWSER_RESTART_INTERVAL_CYCLES:
                     logger.info("Достигнут интервал перезапуска браузера")
                     await session.close()
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(config.BROWSER_RESTART_DELAY_SECONDS)
                     cycle_count = 0
 
-                for city in cities_ch_ids:
+                for city in config.CITIES_CH_IDS:
                     logger.info(f"Проверяем новые объявления {city}...")
                     try:
                         await process_city(session, city)
                     except Exception as e:  # Поймайте любые другие ошибки, специфичные для города
                         logger.error(f"Произошла ошибка при обработке города {city}: {e}")
                     # Всегда ждем перед следующим городом/итерацией
-                    await asyncio.sleep(15)
+                    await asyncio.sleep(config.CITY_POLL_DELAY_SECONDS)
 
         except (
             Exception

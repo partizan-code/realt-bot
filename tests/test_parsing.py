@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from playwright.async_api import async_playwright
 
+import config
 import main
 
 
@@ -41,7 +42,7 @@ class ParsingTests(unittest.IsolatedAsyncioTestCase):
         for prefix in ("ykXXHG", "differentBuild", "styles-module-scss-module__ykXXHG_"):
             with self.subTest(prefix=prefix):
                 await self.page.set_content(card(prefix=prefix))
-                ad = await main.extract_ad(self.page.locator(main.CARD_SELECTOR))
+                ad = await main.extract_ad(self.page.locator(config.CARD_SELECTOR))
                 self.assertEqual(ad["id"], "1001")
                 self.assertEqual(ad["title"], ["2-комн. 50 м² 3/9 эт."])
                 self.assertEqual(ad["price_byn"], ["1 000 р./мес."])
@@ -58,13 +59,13 @@ class ParsingTests(unittest.IsolatedAsyncioTestCase):
                 '<span class="hash_bullet"></span>8/9 эт.'
             )
         )
-        ad = await main.extract_ad(self.page.locator(main.CARD_SELECTOR))
+        ad = await main.extract_ad(self.page.locator(config.CARD_SELECTOR))
         self.assertEqual(ad["title"], ["1-комн. 40 м² 8/9 эт."])
 
     async def test_missing_required_field_is_not_a_valid_ad(self):
         await self.page.set_content(card(price=""))
         with self.assertRaisesRegex(ValueError, "параметры или цена"):
-            await main.extract_ad(self.page.locator(main.CARD_SELECTOR))
+            await main.extract_ad(self.page.locator(config.CARD_SELECTOR))
 
     async def parse(self, html, history=()):
         await self.page.set_content(html)

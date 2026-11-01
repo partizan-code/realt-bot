@@ -1,24 +1,26 @@
 import logging
 import sys
 
+import config
+
 
 def setup_logger():
     """Настройка основного логгера"""
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)  # общий уровень логирования
+    logger.setLevel(config.LOG_LEVEL)  # общий уровень логирования
 
     # Форматтер
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    formatter = logging.Formatter(config.LOG_FORMAT)
 
     # Handler для консоли — все уровни
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(config.CONSOLE_LOG_LEVEL)
 
     # Handler для файла — только ERROR
-    file_handler = logging.FileHandler("error.log")
+    file_handler = logging.FileHandler(config.LOG_FILE)
     file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.ERROR)
+    file_handler.setLevel(config.FILE_LOG_LEVEL)
 
     # Добавляем handlers к логгеру
     logger.addHandler(console_handler)
