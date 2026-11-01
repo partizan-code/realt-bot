@@ -20,9 +20,11 @@ class LoggingTests(unittest.TestCase):
         setup_logger()
 
     def test_console_and_error_file_keep_their_levels(self):
-        logger.info("Найдено {} объявлений {}", 3, "minsk")
+        count, city = 3, "minsk"
+        logger.info(f"Найдено {count} объявлений {city}")
         logger.warning("Фото недоступно")
-        logger.error("Не загрузилась страница {}", "gomel")
+        city = "gomel"
+        logger.error(f"Не загрузилась страница {city}")
         console = self.console.getvalue()
         errors = self.path.read_text(encoding="utf-8")
         self.assertIn("Найдено 3 объявлений minsk", console)
