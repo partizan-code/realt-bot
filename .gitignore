@@ -50,6 +50,9 @@ img/
 ads*.json
 *cookies.json
 
+# Local service configuration
+*.service
+
 # OS
 .DS_Store
 Thumbs.db
